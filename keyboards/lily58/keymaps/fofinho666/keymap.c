@@ -18,18 +18,23 @@
 
 #include QMK_KEYBOARD_H
 
+#include "games/tetris.h"
+#include "games/screen.h"
 
-extern uint8_t is_master;
+Tetris kb_tetris;
 
 enum layers {
     _QWERTY,
     _LOWER,
     _RAISE,
     _ADJUST,
+    _TETRIS
+};
 };
 
 #define RAISE MO(_RAISE)
 #define LOWER MO(_LOWER)
+#define TETRIS TG(_TETRIS)
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
@@ -102,7 +107,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * ,-----------------------------------------.                    ,-----------------------------------------.
  * |      |      |      |      |      |      |                    |      |      |      |      |      |      |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
- * |      |      |      |      |      |      |                    |      |      |      |      |      |      |
+ * |      |      |      |      |      |TETRIS|                    |      |      |      |      |      |      |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
  * |      |      |      |      |      |      |-------.    ,-------|      |      |RGB ON| HUE+ | SAT+ | VAL+ |
  * |------+------+------+------+------+------|       |    |       |------+------+------+------+------+------|
@@ -114,10 +119,32 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  */
   [_ADJUST] = LAYOUT(
   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
+  XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, TETRIS,                    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                   XXXXXXX, XXXXXXX, RGB_TOG, RGB_HUI, RGB_SAI, RGB_VAI,
   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, RGB_MOD, RGB_HUD, RGB_SAD, RGB_VAD,
                              _______, _______, _______, _______, _______,  _______, _______, _______
+  ),
+  /* TETRIS
+ * ,-----------------------------------------.                    ,-----------------------------------------.
+ * |TETRIS|      |      |      |      |      |                    |      |      |      |      |      |      |
+ * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
+ * |      |      |      |      |      |      |                    |      |      |      |      |      |      |
+ * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
+ * |      |      |      |      |      |      |-------.    ,-------| Left | Down |  Up  |Right |       |
+ * |------+------+------+------+------+------|       |    |       |------+------+------+------+------+------|
+ * |      |      |      |      |      |      |-------|    |-------|      |      |      |      |      |      |
+ * `-----------------------------------------/       /     \      \-----------------------------------------'
+ *                   |      |      |LOWER | /       /       \Space \  |RAISE |      |      |
+ *                   |      |      |      |/       /         \      \ |      |      |      |
+ *                   `----------------------------'           '------''--------------------'
+ */
+  [_TETRIS] = LAYOUT(
+  TETRIS,  XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
+  XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                   XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
+  XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                   KC_LEFT, KC_DOWN, KC_UP  , KC_RGHT, XXXXXXX, XXXXXXX,
+  XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
+                             XXXXXXX, XXXXXXX, _______, XXXXXXX, _______,  _______, XXXXXXX, XXXXXXX
   )
 };
 
@@ -130,11 +157,9 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 #ifdef OLED_DRIVER_ENABLE
 
 oled_rotation_t oled_init_user(oled_rotation_t rotation) {
-    if (is_keyboard_master()) {
-        return OLED_ROTATION_270;
-    } else {
-        return OLED_ROTATION_0;
-    }
+  if (!is_keyboard_master())
+    return OLED_ROTATION_180;  // flips the display 180 degrees if slave
+  return rotation;
 }
 
 void render_lily58_logo(void) {
@@ -176,10 +201,22 @@ void render_lily58_logo(void) {
     oled_write_raw_P(lily58_logo, sizeof(lily58_logo));
 }
 
+// When you add source files to SRC in rules.mk, you can use functions.
+const char *read_layer_state(void);
+const char *read_mode_icon(bool swap);
 
-#    define KEYLOG_LEN 6
+void tetris_run(void){
+    Screen tetris_screen;
+    screen_clear(&tetris_screen);
+
+    tetris_update(&kb_tetris);
+    tetris_render(&kb_tetris, &tetris_screen);
+
+    oled_write_raw((char*) tetris_screen.buffer, sizeof(tetris_screen.buffer));
+}
+
+#    define KEYLOG_LEN 21
 char     keylog_str[KEYLOG_LEN] = {};
-uint8_t  keylogs_str_idx        = 0;
 uint16_t log_timer              = 0;
 
 const char code_to_name[60] = {
@@ -212,77 +249,54 @@ void update_log(void) {
     }
 }
 
-void render_keylogger_status(void) {
-    oled_write_P(PSTR("KLogr"), false);
-    oled_write(keylog_str, false);
+void oled_task_user(void) {
+    if (is_keyboard_master()) {
+        if (IS_LAYER_ON(_TETRIS)) {
+            tetris_run();
+        } else {
+            update_log();
+            oled_write_ln(read_mode_icon(keymap_config.swap_lalt_lgui), false);
+            oled_write_ln(read_layer_state(), false);
+            oled_write_ln(keylog_str, false);
 }
-
-void render_default_layer_state(void) {
-    oled_write_P(PSTR("Layer"), false);
-    oled_write_P(PSTR(" "), false);
-    switch (get_highest_layer(layer_state)) {
-        case _QWERTY:
-            oled_write_P(PSTR("QRTY"), false);
-            break;
-        case _LOWER:
-            oled_write_ln_P(PSTR("LOW"), false);
-            break;
-        case _RAISE:
-            oled_write_P(PSTR("HIGH"), false);
-            break;
-        case _ADJUST:
-            oled_write_ln_P(PSTR("ADJ"), false);
-            break;
-        default:
-            oled_write_ln_P(PSTR("Undefined"), false);
+    } else {
+        render_lily58_logo();
     }
 }
-
-void render_keylock_status(led_t led_state) {
-    oled_write_ln_P(PSTR("Lock"), false);
-    oled_write_P(PSTR(" "), false);
-    oled_write_P(PSTR("N"), led_state.num_lock);
-    oled_write_P(PSTR("C"), led_state.caps_lock);
-    oled_write_ln_P(PSTR("S"), led_state.scroll_lock);
-}
-
-void render_mod_status(uint8_t modifiers) {
-    oled_write_ln_P(PSTR("Mods"), false);
-    oled_write_P(PSTR(" "), false);
-    oled_write_P(PSTR("S"), (modifiers & MOD_MASK_SHIFT));
-    oled_write_P(PSTR("C"), (modifiers & MOD_MASK_CTRL));
-    oled_write_P(PSTR("A"), (modifiers & MOD_MASK_ALT));
-    oled_write_P(PSTR("G"), (modifiers & MOD_MASK_GUI));
-}
-
-void render_status_main(void) {
-    // Show keyboard layout
-    render_default_layer_state();
-    // Add a empty line
-    oled_write_P(PSTR("-----"), false);
-    // Show host keyboard led status
-    render_keylock_status(host_keyboard_led_state());
-    // Add a empty line
-    oled_write_P(PSTR("-----"), false);
-    // Show modifier status
-    render_mod_status(get_mods());
-    // Add a empty line
-    oled_write_P(PSTR("-----"), false);
-    render_keylogger_status();
-}
-
-void oled_task_user(void) {
-  update_log();
-  if (is_keyboard_master()) {
-    render_status_main();  // Renders the current keyboard state (layer, lock, caps, scroll, etc)
-  } else {
-    render_lily58_logo();
+void tetris_play(uint16_t keycode) {
+    switch (keycode) {
+        case KC_LEFT:
+            tetris_move(&kb_tetris, 0); // left key to go left
+            break;
+        case KC_RGHT:
+            tetris_move(&kb_tetris, 1); // right key to go right
+            break;
+        case KC_DOWN:
+            tetris_rotate(&kb_tetris, 0); // down key to rotate clockwise
+            break;
+        case KC_UP:
+            tetris_rotate(&kb_tetris, 1); // up key to rotate counterclockwise
+            break;
+        case KC_SPC:
+            tetris_move(&kb_tetris, 2); // space to drop the block
+            break;
   }
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
+        if(IS_LAYER_ON(_TETRIS)) {
+            tetris_play(keycode);
+            return false;
+        }
+
+        switch (keycode) {
+            case ELIXIR_PIPE:
+                SEND_STRING("|>");
+                break;
+            default:
         add_keylog(keycode);
+    }
     }
     return true;
 }
